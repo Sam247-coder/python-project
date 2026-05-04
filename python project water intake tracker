@@ -11,7 +11,6 @@ import sys
 
 # --- DATABASE CONFIGURATION ---
 try:
-    # Increased timeout for better stability
     client = pymongo.MongoClient("mongodb://localhost:27017/", serverSelectionTimeoutMS=5000)
     db = client["WaterTrackerDB"]
     logs = db["daily_logs"]
@@ -26,27 +25,20 @@ class WaterTrackerApp:
         self.root.title("HydroAnalyze - Lifetime Daily Tracker")
         self.root.geometry("1100x750")
         
-        # --- UI LAYOUT ---
         self.main_frame = tk.Frame(self.root)
         self.main_frame.pack(pady=20)
 
-        # Amount Input
         tk.Label(self.main_frame, text="Amount (ml):", font=('Arial', 10, 'bold')).grid(row=0, column=0)
         self.entry_amount = tk.Entry(self.main_frame, width=10)
         self.entry_amount.grid(row=0, column=1, padx=5)
 
-        # Date Input
         tk.Label(self.main_frame, text="Date (YYYY-MM-DD):", font=('Arial', 10, 'bold')).grid(row=0, column=2)
         self.entry_date = tk.Entry(self.main_frame, width=15)
         self.entry_date.grid(row=0, column=3, padx=5)
         self.entry_date.insert(0, datetime.now().strftime("%Y-%m-%d"))
 
-        # Buttons
         tk.Button(self.main_frame, text="Add Record", command=self.add_record, bg="#4CAF50", fg="white").grid(row=0, column=4, padx=5)
-        
-        # Modified button to fill a larger history for testing
         tk.Button(self.main_frame, text="Generate 30-Day History", command=self.fill_dummy_data, bg="#FF9800", fg="white").grid(row=0, column=5, padx=5)
-        
         tk.Button(self.main_frame, text="Clear All Data", command=self.clear_data, bg="#f44336", fg="white").grid(row=0, column=6, padx=5)
 
         self.chart_frame = tk.Frame(self.root)
@@ -59,7 +51,6 @@ class WaterTrackerApp:
         date_str = self.entry_date.get()
         
         try:
-            # Validate date format
             datetime.strptime(date_str, "%Y-%m-%d")
             if not amount.isdigit():
                 raise ValueError
@@ -69,11 +60,14 @@ class WaterTrackerApp:
 
         record = {"date": date_str, "amount_ml": int(amount), "timestamp": datetime.now()}
         logs.insert_one(record)
-        self.entry_amount.delete(0, tk.END) # Clear input after success
+        
+        # Visual Confirmation
+        messagebox.showinfo("Success", f"Logged {amount}ml for {date_str}")
+        
+        self.entry_amount.delete(0, tk.END) 
         self.update_charts()
 
     def fill_dummy_data(self):
-        """Generates 30 days of data to demonstrate long-term tracking"""
         for i in range(30, -1, -1):
             past_date = (datetime.now() - timedelta(days=i)).strftime("%Y-%m-%d")
             random_ml = random.randint(1200, 4000) 
@@ -88,46 +82,35 @@ class WaterTrackerApp:
             self.update_charts()
 
     def update_charts(self):
-        # Clear previous chart
         for widget in self.chart_frame.winfo_children():
             widget.destroy()
 
         raw_data = list(logs.find({}, {"_id": 0}))
         if not raw_data:
-            tk.Label(self.chart_frame, text="No data found. Start logging or use 'Generate History'!").pack(pady=50)
+            tk.Label(self.chart_frame, text="No data found. Start logging!").pack(pady=50)
             return
 
-        # --- DATA PROCESSING ---
         df = pd.DataFrame(raw_data)
         df['date'] = pd.to_datetime(df['date'])
-        
-        # Group by date to sum multiple entries in one day
-        daily_summary = df.groupby('date')['amount_ml'].sum().reset_index()
-        daily_summary = daily_summary.sort_values('date')
+        daily_summary = df.groupby('date')['amount_ml'].sum().reset_index().sort_values('date')
 
-        # --- PLOTTING ---
         fig, ax = plt.subplots(figsize=(10, 5), dpi=100)
         
-        # Use a line plot for long-term trends, or bars for smaller sets
         if len(daily_summary) > 20:
-            ax.plot(daily_summary['date'], daily_summary['amount_ml'], marker='o', linestyle='-', color='#2980b9')
+            ax.plot(daily_summary['date'], daily_summary['amount_ml'], marker='o', color='#2980b9')
             ax.fill_between(daily_summary['date'], daily_summary['amount_ml'], color='#3498db', alpha=0.3)
         else:
             ax.bar(daily_summary['date'].dt.strftime('%d %b'), daily_summary['amount_ml'], color='#3498db')
         
-        # Average line
         avg = np.mean(daily_summary['amount_ml'])
-        ax.axhline(avg, color='red', linestyle='--', label=f'Daily Avg: {int(avg)}ml')
+        ax.axhline(avg, color='red', linestyle='--', label=f'Avg: {int(avg)}ml')
         
-        ax.set_title(f"Water Intake History ({len(daily_summary)} Days Logged)")
-        ax.set_ylabel("Milliliters (ml)")
-        ax.set_xlabel("Date")
-        
+        ax.set_title(f"Water Intake History")
+        ax.set_ylabel("ml")
         plt.xticks(rotation=45)
         ax.legend()
         plt.tight_layout()
 
-        # Embed in Tkinter
         canvas = FigureCanvasTkAgg(fig, master=self.chart_frame)
         canvas.draw()
         canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
